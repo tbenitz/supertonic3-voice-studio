@@ -1,6 +1,8 @@
 import * as ort from 'onnxruntime-web/webgpu';
 ort.env.wasm.numThreads = 1;
-ort.env.wasm.wasmPaths = import.meta.env.BASE_URL;
+// Use an absolute same-origin URL; Vite serves the JS bundle from /assets/,
+// while GitHub Pages hosts these runtime files beside index.html.
+ort.env.wasm.wasmPaths = new URL(import.meta.env.BASE_URL, document.baseURI).href;
 
 // Available languages for multilingual TTS
 export const AVAILABLE_LANGS = ['en', 'ko', 'ja', 'ar', 'bg', 'cs', 'da', 'de', 'el', 'es', 'et', 'fi', 'fr', 'hi', 'hr', 'hu', 'id', 'it', 'lt', 'lv', 'nl', 'pl', 'pt', 'ro', 'ru', 'sk', 'sl', 'sv', 'tr', 'uk', 'vi', 'na'];
