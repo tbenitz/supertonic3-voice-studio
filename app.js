@@ -399,6 +399,10 @@ class PocketVoice {
       this.setCloneStatus("Model still loading… please wait", "");
       return;
     }
+    if (!document.getElementById("voice-consent").checked) {
+      this.setCloneStatus("Confirm speaker permission before recording.", "error");
+      return;
+    }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -464,6 +468,11 @@ class PocketVoice {
   async handleFileUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
+    if (!document.getElementById("voice-consent").checked) {
+      this.setCloneStatus("Confirm speaker permission before uploading a voice.", "error");
+      e.target.value = "";
+      return;
+    }
     if (!this.isWorkerReady) {
       this.setCloneStatus("Model still loading… please wait", "");
       e.target.value = "";

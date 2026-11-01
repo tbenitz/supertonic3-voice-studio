@@ -1,6 +1,15 @@
 name: Pocket TTS browser streaming smoke test
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app.js'
+      - 'index.html'
+      - 'inference-worker.js'
+      - 'PCMPlayerWorklet.js'
+      - 'scripts/pocket-browser-smoke.mjs'
+      - '.github/workflows/pocket-smoke.yml'
 permissions:
   contents: read
 jobs:
