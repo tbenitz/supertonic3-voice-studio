@@ -13,9 +13,9 @@ html=(root/"index.html").read_text()
 app=(root/"app.js").read_text()
 worker=(root/"inference-worker.js").read_text()
 for component in ["stat-eta","stat-produced","streaming-state","streaming-progress",
-                  "btn-generate","btn-upload","file-upload","btn-record"]:
+                  "btn-generate","btn-upload","file-upload","btn-record","buffer-health","buffer-reset"]:
     assert 'id="'+component+'"' in html, "Missing control "+component
-for key in ["estimateSpeechDuration", "refreshGenerationEstimate", "minBufferBeforePlaybackMs: 160",
+for key in ["estimateSpeechDuration", "refreshGenerationEstimate", "chooseBufferPolicy", "setBufferPolicy", "bufferUnderrun",
             "this.player.playAudio(pcm)", "voice_encoded", "generatedSeconds"]:
     assert key in app, "Missing feature "+key
 for key in ["ensureCustomVoiceCached", "encode_voice", "stream_ended", "audio_chunk"]:
