@@ -193,7 +193,7 @@ class SpeakerEncoder {
   }
 }
 function makeAbort(){return {stopped:false,check(){if(this.stopped)throw Error('Cloning was stopped.');}};}
-export function wireVoiceCloning({getTTS,loadStyle,selectVoice,showStatus,showError}){
+export function wireVoiceCloning({getTTS,selectVoice,showStatus,showError,onBusy=()=>{}}){
   const btn=document.getElementById('cloneBtn'),stop=document.getElementById('stopCloneBtn');
   const transcript=document.getElementById('referenceTranscript'),name=document.getElementById('cloneName');
   const progress=document.getElementById('cloneProgress'),status=document.getElementById('cloneStatus');
@@ -211,6 +211,7 @@ export function wireVoiceCloning({getTTS,loadStyle,selectVoice,showStatus,showEr
     const budget=clip(Number(stepsEl.value)||12,2,100);
     const mix=Math.max(1,Math.round(budget*.25)),rows=Math.max(0,Math.round(budget*.3)),fine=budget-mix-rows;
     const abort=makeAbort();currentAbort=abort;
+    onBusy(true);
     btn.disabled=true;stop.disabled=false;download.hidden=true;progress.value=0;progress.max=10+2*(mix+rows+fine);
     const log=msg=>{status.textContent=msg;showStatus(msg);};
     let evaluated=0;
@@ -310,11 +311,15 @@ export function wireVoiceCloning({getTTS,loadStyle,selectVoice,showStatus,showEr
         if(downloadUrl)URL.revokeObjectURL(downloadUrl);
         downloadUrl=URL.createObjectURL(new Blob([json],{type:'application/json'}));
         download.hidden=false;download.href=downloadUrl;download.download=title+'.json';
-        await selectVoice(profile,title);
-        status.textContent+=(abort.stopped?' Best profile so far saved.':'')+' Applied as active voice. You can test it with Generate Speech.';
+        try {
+          await selectVoice(profile,title);
+          status.textContent+=(abort.stopped?' Best profile so far saved.':'')+' Applied as active voice. You can test it with Generate Speech.';
+        } catch(error) {
+          showError('The voice JSON was created, but applying it failed: '+error.message+' — download the JSON and try Import.');
+        }
       }
       if(encoder)await encoder.session.release().catch(()=>{});
-      currentAbort=null;btn.disabled=false;stop.disabled=true;
+      currentAbort=null;btn.disabled=false;stop.disabled=true;onBusy(false);
     }
   });
 }

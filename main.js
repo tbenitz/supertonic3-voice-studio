@@ -240,8 +240,7 @@ async function applyClonedProfile(profile,title) {
     }catch(e){URL.revokeObjectURL(url);throw e;}
 }
 wireVoiceCloning({
-    getTTS:()=>cloningBusy||!generateBtn.disabled?textToSpeech:textToSpeech,
-    loadStyle:loadVoiceStyle,
+    getTTS:()=>textToSpeech,
     selectVoice:applyClonedProfile,
     showStatus,
     showError:(message)=>{if(message)showError(message);else hideError();},
