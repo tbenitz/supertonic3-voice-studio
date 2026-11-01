@@ -17,7 +17,7 @@ try {
   await page.locator('#text').fill(sentence);
   await page.locator('#totalStep').fill('5');
   await page.locator('#generateBtn').click();
-  await page.waitForSelector('#results audio source',{timeout:180000});
+  await page.waitForSelector('#results audio source',{state:'attached',timeout:180000});
   const b64=await page.evaluate(async()=>{
     const src=document.querySelector('#results audio source').src;
     const wav=new Uint8Array(await (await fetch(src)).arrayBuffer());
@@ -52,7 +52,7 @@ try {
   assert.ok((await page.locator('#voiceStyleSelect').inputValue()).startsWith('blob:'));
   await page.locator('#text').fill('The generated voice profile is now active.');
   await page.locator('#generateBtn').click();
-  await page.waitForSelector('#results audio source',{timeout:180000});
+  await page.waitForSelector('#results audio source',{state:'attached',timeout:180000});
   assert.deepEqual(faults,[],'No browser JavaScript errors');
   console.log('Cloned JSON applied and used for speech. PASS');
 } finally {await browser.close();}
