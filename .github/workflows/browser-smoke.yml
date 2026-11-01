@@ -9,6 +9,7 @@ on:
       - 'helper.js'
       - 'index.html'
       - 'scripts/download_model.py'
+      - 'scripts/browser-smoke.mjs'
       - '.github/workflows/browser-smoke.yml'
 permissions:
   contents: read
