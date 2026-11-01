@@ -1,0 +1,30 @@
+name: Pocket TTS browser streaming smoke test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+      - name: Prepare browser dependencies and website
+        run: |
+          npm install --no-save playwright-core
+          mkdir -p dist
+          cp index.html app.js inference-worker.js PCMPlayerWorklet.js EventEmitter.js main-thread-worker-shim.js style.css favicon.svg dist/
+          curl -L --fail --retry 3 --silent --show-error "https://raw.githubusercontent.com/hemanth/pocket-voice/a4496c429f1dcd6ea8faef55a21dc4b7d45636a9/sentencepiece.js" -o dist/sentencepiece.js
+          python3 -m http.server 4173 -d dist > /tmp/site.log 2>&1 &
+      - name: Test progressive synthesis and time estimate
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: node scripts/pocket-browser-smoke.mjs
+      - name: Show local HTTP log on failure
+        if: failure()
+        run: tail -150 /tmp/site.log || true
