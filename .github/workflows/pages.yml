@@ -33,9 +33,17 @@ jobs:
         run: |
           python -m pip install "huggingface_hub>=0.33,<2"
           python scripts/download_model.py
-      - name: Make WebAssembly runtime available to visitors
+      - name: Bundle ONNX Runtime Web scripts and binaries
         run: |
-          find node_modules/onnxruntime-web/dist -maxdepth 1 -name '*.wasm' -exec cp {} public/ \;
+          set -euo pipefail
+          shopt -s nullglob
+          runtimes=(node_modules/onnxruntime-web/dist/ort-wasm*.mjs node_modules/onnxruntime-web/dist/ort-wasm*.wasm)
+          if (( ${#runtimes[@]} < 2 )); then
+            echo "Missing ONNX runtime JavaScript modules or WebAssembly binaries"
+            exit 1
+          fi
+          cp "${runtimes[@]}" public/
+          ls -lh public/ort-wasm*
       - name: Build site
         run: npm run build
       - name: Verify deployment package
