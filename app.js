@@ -11,6 +11,7 @@
  */
 
 import { PCMPlayerWorklet as PCMPlayer } from "./PCMPlayerWorklet.js";
+import {chooseBufferPolicy,learnPlaybackProfile,estimateEmergencyResumeMs} from "./buffer-adaptation.js";
 
 const SAMPLE_RATE = 24000;
 const DB_NAME = "pocket-voice-db";
@@ -61,6 +62,13 @@ class PocketVoice {
     this.estimatedSpeechSeconds = 0;
     this.etaTick = null;
     this.isPlaybackStarted = false;
+    this.bufferPolicy = chooseBufferPolicy();
+    this.bufferRunProfile = {};
+    this.bufferRunKey = "";
+    this.playbackFinalized = false;
+    this.bufferingSince = 0;
+    this.bufferingSeconds = 0;
+    this.maxBufferEpisodes = 0;
 
     // Built-in voices list
     this.builtinVoices = [];
@@ -93,6 +101,8 @@ class PocketVoice {
       streamingPercent: document.getElementById("streaming-percent"),
       streamingProgress: document.getElementById("streaming-progress"),
       streamingNote: document.getElementById("streaming-note"),
+      bufferHealth: document.getElementById("buffer-health"),
+      bufferReset: document.getElementById("buffer-reset"),
       btnDownload: document.getElementById("btn-download"),
       saveModal: document.getElementById("save-modal"),
       saveInput: document.getElementById("save-voice-name"),
@@ -230,6 +240,11 @@ class PocketVoice {
     });
 
     this.el.btnDownload.addEventListener("click", () => this.downloadAudio());
+    this.el.bufferReset?.addEventListener("click", () => {
+      if (this.isGenerating) return;
+      try { localStorage.removeItem(this.bufferStorageKey()); } catch (_) {}
+      this.el.bufferHealth.textContent = "Adaptive playback reset for this language; new generations will learn again.";
+    });
 
     // Save modal
     this.el.saveCancel.addEventListener("click", () => this.closeSaveModal());
@@ -297,11 +312,34 @@ class PocketVoice {
     if (this.audioContext.state === "suspended") {
       await this.audioContext.resume();
     }
-    this.player = new PCMPlayer(this.audioContext, { minBufferBeforePlaybackMs: 160 });
+    this.player = new PCMPlayer(this.audioContext, { minBufferBeforePlaybackMs: 650, resumeBufferMs: 1400 });
     this.player.addEventListener("firstPlayback", () => {
       this.isPlaybackStarted = true;
-      this.el.streamingState.textContent = "Playing now while the remaining speech is generated";
+      this.el.streamingState.textContent = this.isGenerating ? "Playing while speech continues generating" : "Playing completed audio";
+      this.updateBufferHealth();
       this.refreshGenerationEstimate();
+    });
+    this.player.addEventListener("bufferUnderrun", data => {
+      this.bufferingSince = performance.now();
+      this.maxBufferEpisodes = data.episodes;
+      this.el.streamingState.textContent = "Buffering: generation fell behind playback; refilling before resuming…";
+      const remaining = Math.max(0, this.estimatedSpeechSeconds - this.generatedSeconds);
+      this.bufferPolicy.resumeMs = Math.max(this.bufferPolicy.resumeMs, estimateEmergencyResumeMs({
+        remainingAudioSec: remaining,
+        speed: this.rtfMovingAvg || this.bufferPolicy.speed,
+        baseResumeMs: this.bufferPolicy.resumeMs,
+      }));
+      this.player.setBufferPolicy(this.bufferPolicy);
+      this.persistPlaybackLearning();
+      this.updateBufferHealth();
+    });
+    this.player.addEventListener("bufferResumed", () => {
+      if (this.bufferingSince) {
+        this.bufferingSeconds += Math.max(0, performance.now() - this.bufferingSince) / 1000;
+        this.bufferingSince = 0;
+      }
+      this.el.streamingState.textContent = this.isGenerating ? "Playing again · adaptive buffering active" : "Playing again · generation complete";
+      this.updateBufferHealth();
     });
     this.player.addEventListener("audioEnded", () => {
       if (this.deferStreamEnd) {
@@ -382,6 +420,8 @@ class PocketVoice {
         this.stopEstimateTimer();
         this.el.statETA.textContent = "—";
         this.el.streamingState.textContent = "Error: " + msg.error;
+        this.persistPlaybackLearning();
+        if(this.el.bufferReset)this.el.bufferReset.disabled=false;
         this.resetUI();
         break;
     }
@@ -705,6 +745,42 @@ class PocketVoice {
     });
   }
 
+  bufferStorageKey() {
+    return "pocket-tts-adaptive-buffer-v2:" + (this.el.langSelect.value || "default");
+  }
+
+  loadPlaybackProfile() {
+    try {
+      const data = JSON.parse(localStorage.getItem(this.bufferStorageKey()) || "{}");
+      if (data && typeof data === "object" && !Array.isArray(data)) return data;
+    } catch (_) {}
+    return {};
+  }
+
+  persistPlaybackLearning() {
+    if (!this.generatedSeconds || this.generatedSeconds < 0.5) return;
+    const data = learnPlaybackProfile(this.bufferRunProfile, {
+      audioSeconds: this.generatedSeconds,
+      speed: this.rtfMovingAvg || this.bufferRunProfile.speed || 0,
+      startupMs: this.bufferPolicy.startupMs,
+      underruns: Math.max(this.maxBufferEpisodes, this.player?.metrics?.underruns || 0),
+    });
+    try { localStorage.setItem(this.bufferRunKey || this.bufferStorageKey(), JSON.stringify(data)); } catch (_) {}
+  }
+
+  updateBufferHealth() {
+    if (!this.el.bufferHealth) return;
+    const interruptions = Math.max(this.maxBufferEpisodes, this.player?.metrics?.underruns || 0);
+    const speed = this.rtfMovingAvg || this.bufferPolicy.speed || 0;
+    this.el.bufferHealth.textContent =
+      "Smart buffer: " + (this.bufferPolicy.startupMs/1000).toFixed(1) + "s start / " +
+      (this.bufferPolicy.resumeMs/1000).toFixed(1) + "s recovery · " +
+      (speed ? speed.toFixed(2) + "× generation · " : "") +
+      (interruptions
+        ? interruptions + " pause(s) detected; next generation will use a larger buffer."
+        : "no playback pauses detected.");
+  }
+
   // Estimate based on text, then continuously adjust using real audio chunks
   // and measured generated-audio-seconds per compute second. This is an ETA,
   // NOT a claim about guaranteed audio duration or an artificial progress bar.
@@ -762,12 +838,21 @@ class PocketVoice {
     this.generatedSeconds = 0;
     this.isPlaybackStarted = false;
     this.estimatedSpeechSeconds = this.estimateSpeechDuration(text);
+    this.bufferRunKey = this.bufferStorageKey();
+    this.bufferRunProfile = this.loadPlaybackProfile();
+    this.bufferPolicy = chooseBufferPolicy(this.bufferRunProfile, this.estimatedSpeechSeconds);
+    this.playbackFinalized = false;
+    this.bufferingSince = 0;
+    this.bufferingSeconds = 0;
+    this.maxBufferEpisodes = 0;
     this.deferStreamEnd = false;
     this.el.streamingProgress.value = 0;
     this.el.streamingPercent.textContent = "0% est.";
     this.el.statProduced.textContent = "0.0s";
-    this.el.streamingState.textContent = "Preparing voice and first audio chunk…";
-    this.el.streamingNote.textContent = "Starts playing automatically as soon as a small PCM buffer is available; no need to wait for the full result.";
+    this.el.streamingState.textContent = "Preparing audio · prebuffering " + (this.bufferPolicy.startupMs/1000).toFixed(1) + "s for smoother playback…";
+    this.el.streamingNote.textContent = "Playback starts after the learned safety buffer fills; if generation falls behind it pauses and refills instead of skipping audio.";
+    this.updateBufferHealth();
+    if (this.el.bufferReset) this.el.bufferReset.disabled = true;
     if (this.etaTick) clearInterval(this.etaTick);
     this.etaTick = setInterval(() => this.refreshGenerationEstimate(), 500);
     this.refreshGenerationEstimate();
@@ -775,6 +860,7 @@ class PocketVoice {
     if (this.lastAudioUrl) { URL.revokeObjectURL(this.lastAudioUrl); this.lastAudioUrl = null; }
 
     this.player.reset();
+    this.player.setBufferPolicy(this.bufferPolicy);
     this.el.btnGenerate.classList.add("is-loading");
     this.el.btnGenerate.disabled = true;
     this.el.btnStop.style.display = "flex";
@@ -788,11 +874,13 @@ class PocketVoice {
 
   stop() {
     this.isGenerating = false;
+    this.persistPlaybackLearning();
     this.worker.postMessage({ type: "stop" });
     this.player.reset();
     this.stopEstimateTimer();
     this.el.streamingState.textContent = "Stopped.";
     this.el.statETA.textContent = "—";
+    if (this.el.bufferReset) this.el.bufferReset.disabled = false;
     this.resetUI();
   }
 
@@ -812,6 +900,21 @@ class PocketVoice {
       this.rtfMovingAvg = this.rtfMovingAvg === 0 ? rtf : this.rtfMovingAvg * 0.7 + rtf * 0.3;
       this.el.statRTFx.textContent = this.rtfMovingAvg.toFixed(1) + "x";
       try { localStorage.setItem("pocket-voice-rtfx", String(this.rtfMovingAvg)); } catch (_) {}
+      // In the first generation, adapt before playback if measured inference is slower.
+      if (!this.isPlaybackStarted && this.rtfMovingAvg > 0) {
+        const updated = chooseBufferPolicy({
+          ...this.bufferRunProfile, speed: this.rtfMovingAvg,
+          startupMs: this.bufferPolicy.startupMs,
+          resumeMs: this.bufferPolicy.resumeMs,
+        }, this.estimatedSpeechSeconds);
+        if (updated.startupMs > this.bufferPolicy.startupMs) {
+          this.bufferPolicy = updated;
+          this.player.setBufferPolicy(updated);
+          this.el.streamingState.textContent = "Preparing smoother playback · collecting " +
+            (updated.startupMs/1000).toFixed(1) + "s of audio first…";
+        }
+      }
+      this.updateBufferHealth();
     }
   }
 
@@ -823,18 +926,27 @@ class PocketVoice {
     this.el.streamingPercent.textContent = "100% generated";
     this.el.streamingState.textContent = "Generation complete · finishing playback";
     this.el.statProduced.textContent = this.generatedSeconds.toFixed(1) + "s";
+    // The AudioWorklet alone knows when the last sample was played.
+    this.deferStreamEnd = true;
     this.player.notifyStreamEnded();
-    const status = this.player.getPlaybackStatus();
-    if (status.worklet.bufferLevelSamples > 0) {
-      this.deferStreamEnd = true;
-    } else {
-      this.finalizePlayback();
-    }
+    this.persistPlaybackLearning();
   }
 
   finalizePlayback() {
+    if (this.playbackFinalized) return;
+    this.playbackFinalized = true;
     this.stopEstimateTimer();
-    this.el.streamingState.textContent = "Finished · ready to download";
+    this.persistPlaybackLearning();
+    if (this.bufferingSince) {
+      this.bufferingSeconds += Math.max(0,performance.now()-this.bufferingSince)/1000;
+      this.bufferingSince=0;
+    }
+    const episodes=Math.max(this.maxBufferEpisodes,this.player.metrics.underruns);
+    this.el.streamingState.textContent = episodes
+      ? "Finished · " + episodes + " buffering pause(s) detected; next generation has learned"
+      : "Finished smoothly · ready to download";
+    this.updateBufferHealth();
+    if(this.el.bufferReset)this.el.bufferReset.disabled=false;
     this.buildDownloadBlob();
     this.resetUI();
   }

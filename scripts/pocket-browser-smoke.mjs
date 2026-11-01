@@ -12,11 +12,46 @@ try {
  page.on('requestfailed',r=>console.error('[request failed]',r.url(),r.failure()?.errorText));
  await page.goto('http://127.0.0.1:4173/',{waitUntil:'domcontentloaded'});
  await page.waitForFunction(()=>!document.getElementById('btn-generate').disabled,null,{timeout:240000});
+
  console.log('Pocket TTS browser models loaded.');
+ // Exercise the real AudioWorklet buffer depletion path independently.
+ const simulation = await page.evaluate(async()=>{
+   const {PCMPlayerWorklet}=await import('./PCMPlayerWorklet.js');
+   const ctx=new AudioContext({sampleRate:24000});
+   await ctx.resume();
+   const p=new PCMPlayerWorklet(ctx,{minBufferBeforePlaybackMs:150,resumeBufferMs:700});
+   await p.initPromise;
+   let underruns=0,resumes=0;
+   p.addEventListener('bufferUnderrun',()=>underruns++);
+   p.addEventListener('bufferResumed',()=>resumes++);
+   const tone=(seconds)=>new Float32Array(Math.floor(24000*seconds)).fill(0.01);
+   p.playAudio(tone(.25));
+   await new Promise(r=>setTimeout(r,800));
+   const before={underruns,resumes};
+   p.playAudio(tone(1.4));
+   p.notifyStreamEnded();
+   await new Promise(r=>setTimeout(r,450));
+   const after={underruns,resumes};
+   p.stopAllSources();
+   await ctx.close();
+   return {before,after};
+ });
+ assert.ok(simulation.before.underruns>=1,'AudioWorklet should detect a genuine empty-buffer episode');
+ assert.equal(simulation.before.resumes,0,'Do not resume before enough PCM arrives');
+ assert.ok(simulation.after.resumes>=1,'AudioWorklet should refill and resume after starvation');
+ console.log('Adaptive worklet underrun and refill simulation PASS',JSON.stringify(simulation));
+ await page.evaluate(()=>{
+   localStorage.setItem('pocket-tts-adaptive-buffer-v2:english_2026-04',
+     JSON.stringify({version:2,speed:1.25,startupMs:2000,resumeMs:1500,runs:2,totalUnderruns:1}));
+ });
+
  await page.locator('#text-input').fill('The first sound should play before the rest of this full recording has been generated. This is a demonstration of streaming audio with Kyutai Pocket TTS, and it is being tested in an actual browser.');
+
  await page.locator('#btn-generate').click();
+ await page.waitForFunction(()=>document.getElementById('buffer-health')?.textContent.includes('Smart buffer: 2.0s'),null,{timeout:10000});
+ console.log('Persistent adaptive buffer profile was applied to the next generation.');
  await page.waitForFunction(()=>document.getElementById('stat-ttfb').textContent!=='—',null,{timeout:240000});
- const playbackObserved=await page.waitForFunction(()=>document.getElementById('streaming-state').textContent.includes('Playing now'),null,{timeout:120000}).then(()=>true,()=>false);
+ const playbackObserved=await page.waitForFunction(()=>document.getElementById('streaming-state').textContent.startsWith('Playing '),null,{timeout:120000}).then(()=>true,()=>false);
  console.log('First chunk arrived; playback observed:',playbackObserved);
  const maybeETA=await page.locator('#stat-eta').textContent();
  console.log('Live generation ETA:',maybeETA);
@@ -53,7 +88,7 @@ try {
  await page.locator('#btn-generate').click();
  await page.waitForFunction(()=>{
    const state=document.querySelector('#streaming-state')?.textContent||'';
-   return state.includes('Playing now');
+   return state.startsWith('Playing ');
  },null,{timeout:240000});
  await page.waitForFunction(()=>!document.getElementById('btn-download').disabled,null,{timeout:240000});
  console.log('Cloned voice synthesized speech with progressive playback. FULL END-TO-END PASS.');

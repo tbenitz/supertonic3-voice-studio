@@ -26,12 +26,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp index.html app.js inference-worker.js PCMPlayerWorklet.js EventEmitter.js main-thread-worker-shim.js style.css favicon.svg dist/
+          cp index.html app.js inference-worker.js PCMPlayerWorklet.js EventEmitter.js main-thread-worker-shim.js buffer-adaptation.js style.css favicon.svg dist/
           echo '' > dist/.nojekyll
           curl --fail --location --retry 3 --retry-all-errors --silent --show-error \
             "https://raw.githubusercontent.com/hemanth/pocket-voice/a4496c429f1dcd6ea8faef55a21dc4b7d45636a9/sentencepiece.js" \
             --output dist/sentencepiece.js
           test "$(wc -c < dist/sentencepiece.js)" -gt 3000000
+          node scripts/test-buffer-adaptation.mjs
           node --check app.js
           node --check inference-worker.js
           node --check main-thread-worker-shim.js

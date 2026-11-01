@@ -3,7 +3,7 @@ from pathlib import Path
 import re
 root=Path("dist")
 required=["index.html","app.js","inference-worker.js","PCMPlayerWorklet.js",
-          "EventEmitter.js","main-thread-worker-shim.js","style.css",
+          "EventEmitter.js","main-thread-worker-shim.js","buffer-adaptation.js","style.css",
           "favicon.svg","sentencepiece.js",".nojekyll"]
 for p in required:
     f=root/p

@@ -243,7 +243,11 @@
               <span id="streaming-percent">—</span>
             </div>
             <progress id="streaming-progress" max="100" value="0"></progress>
-            <p class="live-streaming__note" id="streaming-note">No full-render wait: the AudioWorklet starts after ~160 ms of audio is buffered. Completion estimates adapt to your device's measured speed.</p>
+            <p class="live-streaming__note" id="streaming-note">Adaptive playback starts after a measured safety buffer fills. Slow devices automatically buffer longer for future generations; when a gap occurs, the player pauses and refills instead of skipping audio.</p>
+            <div class="buffer-diagnostics">
+              <span id="buffer-health" role="status">Smart buffer: learning your device speed…</span>
+              <button type="button" id="buffer-reset" title="Forget the learned buffer for this language">Reset learning</button>
+            </div>
           </div>
         </div>
       </div>

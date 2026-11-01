@@ -38,8 +38,10 @@ export class PCMPlayerWorklet extends EventEmitter {
 
     try {
       const sampleRate = this.audioContext.sampleRate;
-      const minBufferMs = this.options.minBufferBeforePlaybackMs || 300;
+      const minBufferMs = this.options.minBufferBeforePlaybackMs ?? 650;
+      const resumeBufferMs = this.options.resumeBufferMs ?? 1400;
       const minBufferSamples = Math.floor(minBufferMs * sampleRate / 1000);
+      const resumeBufferSamples = Math.floor(resumeBufferMs * sampleRate / 1000);
       const bufferSizeSamples = sampleRate * 60;
 
       const processorCode = `
@@ -52,7 +54,10 @@ export class PCMPlayerWorklet extends EventEmitter {
             this.writePos = 0;
             this.isPlaying = false;
             this.minBufferSamples = ${minBufferSamples};
-            this.targetBufferSamples = ${minBufferSamples * 2};
+            this.resumeBufferSamples = ${resumeBufferSamples};
+            this.targetBufferSamples = Math.min(this.bufferSize - 128, Math.max(this.minBufferSamples, this.resumeBufferSamples) * 2);
+            this.hasStarted = false;
+            this.isRebuffering = false;
             this.streamEnded = false;
             this.playbackCompleteReported = false;
             this.frameCount = 0;
@@ -62,7 +67,16 @@ export class PCMPlayerWorklet extends EventEmitter {
               switch(e.data.type) {
                 case 'audio': this.addAudio(e.data.data); break;
                 case 'reset': this.reset(); break;
-                case 'stream-ended': this.streamEnded = true; break;
+                case 'stream-ended':
+                  this.streamEnded = true;
+                  this.tryStartPlayback();
+                  break;
+                case 'set-buffer-policy':
+                  this.minBufferSamples = Math.max(0, Math.min(this.bufferSize - 1024, e.data.startupSamples));
+                  this.resumeBufferSamples = Math.max(128, Math.min(this.bufferSize - 1024, e.data.resumeSamples));
+                  this.targetBufferSamples = Math.min(this.bufferSize - 128, Math.max(this.minBufferSamples, this.resumeBufferSamples) * 2);
+                  this.tryStartPlayback();
+                  break;
                 case 'request-capacity': this.sendCapacityUpdate(); break;
               }
             };
@@ -87,12 +101,21 @@ export class PCMPlayerWorklet extends EventEmitter {
               this.ringBuffer.set(float32Data.slice(firstPart), 0);
               this.writePos = secondPart;
             }
-            const buffered = this.getBufferedSamples();
-            if (!this.isPlaying && buffered >= this.minBufferSamples) {
-              this.isPlaying = true;
-              this.port.postMessage({ type: 'playback-started', buffered, audioTime: currentTime });
-            }
+            this.tryStartPlayback();
             this.sendCapacityUpdate();
+          }
+
+          tryStartPlayback() {
+            if (this.isPlaying) return;
+            const buffered = this.getBufferedSamples();
+            const threshold = this.hasStarted ? this.resumeBufferSamples : this.minBufferSamples;
+            if (buffered >= threshold || (this.streamEnded && buffered > 0)) {
+              this.isPlaying = true;
+              const type = this.hasStarted ? 'rebuffer-complete' : 'playback-started';
+              this.port.postMessage({ type, buffered, audioTime: currentTime });
+              this.hasStarted = true;
+              this.isRebuffering = false;
+            }
           }
 
           getAvailableSpace() {
@@ -121,8 +144,28 @@ export class PCMPlayerWorklet extends EventEmitter {
             const outputChannel = output[0];
             const numSamples = outputChannel.length;
             if (++this.frameCount % this.reportInterval === 0) this.sendCapacityUpdate();
-            if (!this.isPlaying) { outputChannel.fill(0); return true; }
+            if (!this.isPlaying) {
+              outputChannel.fill(0);
+              // A complete generation may be shorter than the startup buffer,
+              // or have ended during rebuffering. Always drain its final audio.
+              this.tryStartPlayback();
+              if (this.streamEnded && this.getBufferedSamples() === 0 && !this.playbackCompleteReported) {
+                this.port.postMessage({ type: 'playback-complete' });
+                this.playbackCompleteReported = true;
+              }
+              return true;
+            }
             const buffered = this.getBufferedSamples();
+            if (buffered < numSamples && !this.streamEnded) {
+              // Don't consume partial samples and inject hundreds of little
+              // silences. Suspend the stream until sufficient PCM has arrived.
+              outputChannel.fill(0);
+              this.isPlaying = false;
+              this.isRebuffering = true;
+              this.port.postMessage({type:'underrun', buffered, needed:numSamples});
+              this.sendCapacityUpdate();
+              return true;
+            }
             if (buffered < numSamples) {
               let samplesRead = 0;
               if (buffered > 0) {
@@ -147,9 +190,6 @@ export class PCMPlayerWorklet extends EventEmitter {
                 }
                 this.isPlaying = false;
                 this.streamEnded = false;
-              } else {
-                this.port.postMessage({ type: 'underrun', buffered, needed: numSamples });
-                this.sendCapacityUpdate();
               }
             } else {
               if (this.readPos + numSamples <= this.bufferSize) {
@@ -172,6 +212,8 @@ export class PCMPlayerWorklet extends EventEmitter {
             this.writePos = 0;
             this.ringBuffer.fill(0);
             this.isPlaying = false;
+            this.hasStarted = false;
+            this.isRebuffering = false;
             this.streamEnded = false;
             this.playbackCompleteReported = false;
             this.sendCapacityUpdate();
@@ -193,9 +235,21 @@ export class PCMPlayerWorklet extends EventEmitter {
           case 'capacity': this.handleCapacityUpdate(e.data); break;
           case 'underrun':
             this.metrics.underruns++;
+            this.metrics.isBuffering = true;
+            this.emit('bufferUnderrun', {
+              episodes: this.metrics.underruns,
+              bufferedMs: e.data.buffered / this.audioContext.sampleRate * 1000
+            });
             this.processPendingChunks();
             break;
+          case 'rebuffer-complete':
+            this.metrics.isBuffering = false;
+            this.emit('bufferResumed', {
+              bufferedMs: e.data.buffered / this.audioContext.sampleRate * 1000
+            });
+            break;
           case 'playback-started':
+            this.metrics.isBuffering = false;
             this.emit('firstPlayback', { startTime: this.audioContext.currentTime, bufferedSamples: e.data.buffered });
             break;
           case 'playback-complete':
@@ -287,6 +341,19 @@ export class PCMPlayerWorklet extends EventEmitter {
     }
   }
 
+  setBufferPolicy({startupMs=650,resumeMs=1400}={}) {
+    this.options.minBufferBeforePlaybackMs = startupMs;
+    this.options.resumeBufferMs = resumeMs;
+    if (this.workletNode) {
+      const rate=this.audioContext.sampleRate;
+      this.workletNode.port.postMessage({
+        type:'set-buffer-policy',
+        startupSamples: Math.round(startupMs * rate / 1000),
+        resumeSamples: Math.round(resumeMs * rate / 1000)
+      });
+    }
+  }
+
   pcm16ToFloat32(pcm16) {
     const float32 = new Float32Array(pcm16.length);
     for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768;
@@ -297,6 +364,10 @@ export class PCMPlayerWorklet extends EventEmitter {
     this.playbackTime = 0;
     this.pendingChunks = [];
     this.pendingStreamEnd = false;
+    this.metrics.underruns = 0;
+    this.metrics.bufferLevel = 0;
+    this.metrics.isBuffering = false;
+    this.metrics.chunksPlayed = 0;
     if (this.workletNode) {
       this.workletNode.port.postMessage({ type: 'reset' });
       this.workletNode.port.postMessage({ type: 'request-capacity' });
@@ -351,6 +422,9 @@ export class PCMPlayerWorklet extends EventEmitter {
         bufferLevelSamples: this.metrics.bufferLevel,
         bufferLevelMs: bufferMs,
         underruns: this.metrics.underruns,
+        isBuffering: !!this.metrics.isBuffering,
+        startupBufferMs: this.options.minBufferBeforePlaybackMs,
+        resumeBufferMs: this.options.resumeBufferMs,
         chunksPlayed: this.metrics.chunksPlayed,
         pendingChunks: this.pendingChunks.length
       }

@@ -957,3 +957,9 @@ body {
 .metrics{flex-wrap:wrap}
 .metric__val{font-variant-numeric:tabular-nums}
 .studio-disclosure{max-width:960px;margin:10px auto 36px;padding:0 16px;font-size:.78rem;line-height:1.6;color:#9baeb4;text-align:center}
+
+/* Per-device adaptive playback diagnostics */
+.buffer-diagnostics{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-top:12px;border-top:1px solid rgba(162,204,213,.15);padding-top:10px;font-size:12px;line-height:1.45;color:#b6d8db}
+#buffer-health{flex:1}
+#buffer-reset{flex:none;border:1px solid rgba(124,171,184,.5);border-radius:7px;background:rgba(10,24,34,.6);color:#c4e0e0;padding:6px 9px;cursor:pointer;font:inherit}
+#buffer-reset:disabled{opacity:.45;cursor:not-allowed}
