@@ -3,6 +3,7 @@ import {
     loadVoiceStyle,
     writeWavFile
 } from './helper.js';
+import {wireVoiceCloning} from './voice-clone.js';
 
 // Configuration
 const DEFAULT_VOICE_STYLE_PATH = 'assets/voice_styles/M1.json';
@@ -22,6 +23,7 @@ let currentStylePath = DEFAULT_VOICE_STYLE_PATH;
 let customVoiceUrl = null;
 let referenceAudioUrl = null;
 let lastGeneratedUrl = null;
+let cloningBusy = false;
 
 // UI Elements
 const textInput = document.getElementById('text');
@@ -216,10 +218,38 @@ document.getElementById('referenceAudioFile').addEventListener('change',event=>{
     document.getElementById('referenceAudioPlayer').src=referenceAudioUrl;
     document.getElementById('referenceAudioName').textContent='Reference audio: '+file.name;
     document.getElementById('referencePreview').hidden=false;
-    showStatus('Reference audio loaded for local preview. This does not clone its voice.','info');
+    showStatus('Reference loaded locally. Add the transcript and click Create voice from recording.','info');
+});
+
+async function applyClonedProfile(profile,title) {
+    const url=URL.createObjectURL(new Blob([JSON.stringify(profile)],{type:'application/json'}));
+    try {
+        const style=await loadVoiceStyle([url]);
+        const select=document.getElementById('voiceStyleSelect');
+        const previous=customVoiceUrl;
+        customVoiceUrl=url;
+        currentStyle=style;
+        currentStylePath=url;
+        let option=select.querySelector('option[data-custom="yes"]');
+        if(!option){option=document.createElement('option');option.dataset.custom='yes';select.add(option);}
+        option.value=url;option.textContent='Cloned: '+title;
+        select.value=url;
+        voiceStyleInfo.textContent='Cloned voice: '+title;
+        document.getElementById('customVoiceStatus').textContent='Cloned profile applied. You can also download the JSON to reuse later.';
+        if(previous)URL.revokeObjectURL(previous);
+    }catch(e){URL.revokeObjectURL(url);throw e;}
+}
+wireVoiceCloning({
+    getTTS:()=>cloningBusy||!generateBtn.disabled?textToSpeech:textToSpeech,
+    loadStyle:loadVoiceStyle,
+    selectVoice:applyClonedProfile,
+    showStatus,
+    showError:(message)=>{if(message)showError(message);else hideError();},
+    onBusy:(busy)=>{cloningBusy=busy;generateBtn.disabled=busy||!textToSpeech;}
 });
 // Main synthesis function
 async function generateSpeech() {
+    if (cloningBusy) {showError('Finish or stop voice cloning before generating speech.');return;}
     const text = textInput.value.trim();
     if (!text) {
         showError('Please enter some text to synthesize.');

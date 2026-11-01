@@ -45,7 +45,7 @@
                     <div class="section custom-upload">
                         <label for="customVoiceFile">Import a custom voice style (.json)</label>
                         <input id="customVoiceFile" type="file" accept=".json,application/json">
-                        <p class="tip" id="customVoiceStatus">A compatible Supertonic 3 profile becomes available as a voice option.</p>
+                        <p class="tip" id="customVoiceStatus">A previously created Supertonic 3 voice JSON profile can be imported here.</p>
                     </div>
                     <div class="section custom-upload">
                         <label for="referenceAudioFile">Your voice recording (reference audio)</label>
@@ -54,7 +54,30 @@
                           <p class="tip" id="referenceAudioName"></p>
                           <audio id="referenceAudioPlayer" controls preload="metadata"></audio>
                         </div>
-                        <p class="tip"><strong>Important:</strong> Audio upload provides a private preview, <em>not</em> an instant voice clone. The open model cannot extract a voice profile from a recording. To use a recording as a voice, convert it into a compatible JSON style separately, then import that JSON. See the <a href="https://github.com/DavidValin/supertonic3-tts" target="_blank" rel="noopener noreferrer">experimental community method</a>.</p>
+                        <div class="clone-form">
+                          <label for="cloneName">New voice name</label>
+                          <input id="cloneName" type="text" value="My Voice" maxlength="40" placeholder="My Voice">
+                          <label for="referenceTranscript">Exact words spoken in the reference (required)</label>
+                          <textarea id="referenceTranscript" rows="3" placeholder="Type the exact sentence or two spoken in your recording. This helps the clone match voice and timing."></textarea>
+                          <div class="clone-window">
+                            <div><label for="referenceStart">Transcript starts at (seconds)</label><input id="referenceStart" type="number" min="0" step=".1" placeholder="Optional"></div>
+                            <div><label for="referenceEnd">Transcript ends at (seconds)</label><input id="referenceEnd" type="number" min=".1" step=".1" placeholder="Optional"></div>
+                          </div>
+                          <p class="tip">For best results: 10–30 seconds of clean single-speaker audio, and an exact transcript covering roughly 3–15 seconds. If your transcript covers only part of a longer clip, enter start/end seconds; the whole clip still trains the voice identity. This is an experimental optimization, not an instant encoder. It may take minutes or longer.</p>
+                          <label for="cloneIterations">Optimization effort (steps)</label>
+                          <select id="cloneIterations">
+                            <option value="2">Quick trial · 2 iterations (limited fidelity)</option>
+                            <option value="12" selected>Starter · 12 iterations</option>
+                            <option value="40">Better · 40 iterations</option>
+                            <option value="100">Deep · 100 iterations (slow)</option>
+                          </select>
+                          <label class="consent"><input type="checkbox" id="voiceConsent"> I own this recording or have the speaker's permission to clone their voice.</label>
+                          <div class="clone-buttons"><button id="cloneBtn" type="button">Create voice from recording</button><button id="stopCloneBtn" type="button" disabled>Stop cloning</button></div>
+                          <progress id="cloneProgress" max="20" value="0"></progress>
+                          <p class="tip" id="cloneStatus" aria-live="polite">Choose audio, type its transcript, and press Create voice.</p>
+                          <a id="downloadClone" hidden class="clone-download" download="cloned-voice.json">Download cloned voice JSON</a>
+                          <p class="tip">Your recording and transcript stay in your browser. The resulting JSON is applied as the current voice automatically. Use Generate Speech to hear the result. Cloning is not guaranteed to reproduce a speaker perfectly.</p>
+                        </div>
                     </div>
                     <div class="section">
                         <label for="langSelect">Language:</label>

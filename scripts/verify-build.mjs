@@ -12,6 +12,7 @@ const required=[
   'assets/voice_styles/M1.json',
   'assets/voice_styles/F5.json',
   'assets/LICENSE',
+  'assets/speaker_encoder.onnx',
   // ONNX Runtime's WebGPU-enabled build dynamically imports this script.
   'ort-wasm-simd-threaded.asyncify.mjs',
   'ort-wasm-simd-threaded.asyncify.wasm',

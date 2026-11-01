@@ -466,3 +466,19 @@ h1{letter-spacing:-.045em}
 .custom-upload audio{width:100%;margin:12px 0}
 .attribution{text-align:center;font-size:12px;opacity:.7;margin:30px auto 15px;padding:16px}
 .attribution a{color:#9aeae4}
+
+/* Browser voice-cloning workspace */
+.clone-form{display:grid;gap:11px;margin-top:16px;background:#112537;padding:18px;border:1px solid #46768b;border-radius:12px}
+.clone-form label{font-size:13px;font-weight:700;color:#d9ebf2}
+.clone-form textarea,.clone-form input[type=text],.clone-form input[type=number],.clone-form select{box-sizing:border-box;min-width:0;width:100%;background:#0d1b2c;border:1px solid #527085;border-radius:8px;color:#eef7ff;padding:10px;font:inherit}
+.clone-window{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.clone-window>div{display:grid;gap:7px}
+.clone-form .consent{display:flex;align-items:flex-start;gap:9px;font-weight:500;line-height:1.55}
+.clone-form .consent input{margin-top:4px;flex-shrink:0}
+.clone-buttons{display:flex;gap:9px;flex-wrap:wrap}
+.clone-buttons button{flex:1;min-width:125px;padding:13px;border-radius:9px;font-weight:700;cursor:pointer}
+.clone-buttons #stopCloneBtn{background:#702b3b;color:white}
+.clone-buttons button:disabled{opacity:.5;cursor:not-allowed}
+#cloneProgress{width:100%;height:14px;accent-color:#60dec0}
+.clone-download{display:inline-block;background:#1a6359;color:#fff;padding:12px;border-radius:9px;font-weight:700;text-align:center}
+.clone-download[hidden]{display:none}
