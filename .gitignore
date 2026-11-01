@@ -1,0 +1,6 @@
+node_modules/
+dist/
+public/assets/onnx/
+public/assets/voice_styles/
+public/assets/LICENSE
+.DS_Store

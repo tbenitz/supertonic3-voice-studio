@@ -1,0 +1,48 @@
+name: Publish Voice Studio to GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install npm dependencies
+        run: npm install --no-audit --no-fund
+      - name: Download archived Supertonic 3 model
+        run: |
+          python -m pip install "huggingface_hub>=0.33,<2"
+          python scripts/download_model.py
+      - name: Make WebAssembly runtime available to visitors
+        run: |
+          find node_modules/onnxruntime-web/dist -maxdepth 1 -name '*.wasm' -exec cp {} public/ \;
+      - name: Build site
+        run: npm run build
+      - name: Verify deployment package
+        run: npm run verify
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - uses: actions/deploy-pages@v4
+        id: deployment
