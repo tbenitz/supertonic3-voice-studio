@@ -1,4 +1,4 @@
-name: Publish Voice Studio to GitHub Pages
+name: Deploy Kyutai Pocket TTS Voice Studio
 on:
   push:
     branches: [main]
@@ -16,38 +16,30 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install npm dependencies
-        run: npm install --no-audit --no-fund
-      - name: Download archived Supertonic 3 model
-        run: |
-          python -m pip install "huggingface_hub>=0.33,<2"
-          python scripts/download_model.py
-      - name: Bundle ONNX Runtime Web scripts and binaries
+      - name: Prepare static site and pin tokenizer runtime
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          runtimes=(node_modules/onnxruntime-web/dist/ort-wasm*.mjs node_modules/onnxruntime-web/dist/ort-wasm*.wasm)
-          if (( ${#runtimes[@]} < 2 )); then
-            echo "Missing ONNX runtime JavaScript modules or WebAssembly binaries"
-            exit 1
-          fi
-          cp "${runtimes[@]}" public/
-          ls -lh public/ort-wasm*
-      - name: Build site
-        run: npm run build
-      - name: Verify deployment package
-        run: npm run verify
+          mkdir -p dist
+          cp index.html app.js inference-worker.js PCMPlayerWorklet.js EventEmitter.js main-thread-worker-shim.js style.css favicon.svg dist/
+          echo '' > dist/.nojekyll
+          curl --fail --location --retry 3 --retry-all-errors --silent --show-error \
+            "https://raw.githubusercontent.com/hemanth/pocket-voice/a4496c429f1dcd6ea8faef55a21dc4b7d45636a9/sentencepiece.js" \
+            --output dist/sentencepiece.js
+          test "$(wc -c < dist/sentencepiece.js)" -gt 3000000
+          node --check app.js
+          node --check inference-worker.js
+          node --check main-thread-worker-shim.js
+          node --check PCMPlayerWorklet.js
+          echo "Tokenizer and browser scripts available."
+      - name: Validate linked files and progressive playback UI
+        run: |
+          python3 scripts/verify-pocket-site.py
       - uses: actions/configure-pages@v5
         with:
           enablement: true

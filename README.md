@@ -1,52 +1,41 @@
-# Supertonic 3 Voice Studio
+# Pocket TTS Voice Studio
 
-A privacy-first multilingual text-to-speech website for GitHub Pages built on the archived [Supertonic 3](https://huggingface.co/supertone-oss-archive/supertonic-3) ONNX model.
+A **real**, locally executing browser voice-cloning + streaming speech application based on Kyutai's Pocket TTS. This replaces the previous Supertonic 3 implementation in the same repository and GitHub Pages URL.
 
-**Features:** 31 languages, 10 preset voices, custom Supertonic 3 style JSON import, experimental browser-side voice cloning from recordings (speaker-embedding-guided, iterative), WAV export, reading-speed and quality settings, WebGPU with WebAssembly fallback.
+**Website:** https://tbenitz.github.io/supertonic3-voice-studio/
 
-## Clone a voice from audio (experimental)
+## Features
 
-1. Upload an audio clip with **one person's clean speech**. Aim for 10–30 seconds.
-2. Type **the exact words spoken** for a 3–15-second portion. For longer files, enter start/end seconds to mark the corresponding sentence.
-3. Check the permission confirmation, pick a cloning effort (12 / 40 / 100 steps), and select **Create voice from recording**.
-4. Watch real model-comparison progress. The browser evaluates the 10 presets and optimizes global mixture, per-row mixture, and individual style tensors to match the recording. This can take **minutes to tens of minutes or more** depending on your CPU/WebGPU and iteration count.
-5. Once done, the new voice is automatically selected for TTS and you can download its **real generated Supertonic 3 voice-style JSON** for future reuse. Stop saves the best profile computed so far.
+- Upload a short WAV/MP3 sample or record microphone audio; browser Mimi encoder extracts a voice conditioning state **from your actual voice sample**, not a preset reranked with optimization.
+- Generate speech using the cloned voice, or choose a built-in voice.
+- Audio plays **while still generating**, using a Web Worker, PCM frames and an AudioWorklet ring buffer. A small 160 ms buffer starts playback as soon as sufficient audio arrives; slow CPUs can still cause buffering.
+- Estimated **generation time remaining**, updated from measured audio-generation speed, with an explicitly approximate progress bar.
+- WAV audio download; locally saved voice samples in browser IndexedDB.
+- English (2026-04), German, Italian, Portuguese, and Spanish ONNX bundles, using the community ONNX Web port.
 
-Unlike the previous audio preview-only interface, this page actually runs synthesis and compares speaker identity from a separate ONNX speaker encoder to guide the optimization. It also uses pitch, spectral and utterance duration differences. The source project for the staged optimizer approach is [DavidValin/supertonic3-tts](https://github.com/DavidValin/supertonic3-tts) (this is a separate JavaScript browser adaptation, not the Rust implementation). **This is experimental. Voice fidelity varies and a few iterations may sound similar to the nearest preset.** The site does not train weights or include an instant zero-shot encoder. Neither audio nor text is transmitted to a server.
+## Using the website
 
-The speaker encoder is fetched during GitHub Actions from sherpa-onnx's publicly released ERes2Net 3D-Speaker model (Apache-2.0), and is deployed as `assets/speaker_encoder.onnx` alongside the Supertonic model. It adds about 26 MB to the initial cloning download; it is loaded only if the user clicks Create voice.
+Open the site in Chrome or another modern browser. The first visit downloads Pocket TTS model components from Hugging Face and ONNX Runtime from jsDelivr. The tokenizer is served from GitHub Pages. These components are cached by the browser. Select a language and wait for the model to initialize; upload a **clean short recording of one authorized speaker** or use Record, then choose the cloned voice. Type text and click **Generate Audio**. It begins playing before generation completes, and updates a time-remaining estimate as chunks arrive. Stop interrupts playback and generation.
 
-## Safety
+**Estimates are not guaranteed timings.** Before the first chunk, the site shows “Calibrating…”; after generation starts, it estimates audio duration from the text and generation speed from real chunks and optionally the previous local session. The display is explicitly marked approximate, and marks complete on stream end.
 
-Only clone voices with the subject's explicit permission, and clearly identify synthetic speech as such. Do not use impersonation to deceive others.
+## Deployment
 
-## Publish
+The repo is a static website. GitHub Actions deploys the site on each push to `main`; select **GitHub Actions** under **Settings → Pages** if needed.
 
-1. Open **Settings → Pages** in this repository.
-2. Set **Build and deployment → Source → GitHub Actions**.
-3. Open **Actions → Publish Voice Studio to GitHub Pages** and run the workflow if it has not started automatically.
-4. Visit `https://tbenitz.github.io/supertonic3-voice-studio/` after the deployment succeeds.
+Only the large ~4 MB SentencePiece runtime is copied from a **pinned upstream GitHub commit** during the build. The actual ONNX inference is performed client-side, but ONNX models and their assets are downloaded at runtime from the community's Hugging Face Space/CDN. No server accepts uploaded voices.
 
-GitHub Actions downloads the archived model from Hugging Face at build time (~400 MB). The model is **not** stored in Git. Inference happens in each visitor's browser, not on a server, with no API key. A first-time visitor must download the model.
+For local testing, fetch `sentencepiece.js` from the pinned upstream commit recorded in the Pages workflow, serve the repository on localhost (for example, `python3 -m http.server 8000`) and open localhost:8000.
 
-## Local development
+## Licensing and attribution
 
-Requires Node.js 22+ and Python 3.12+.
+This adaptation uses the [Pocket Voice](https://github.com/hemanth/pocket-voice) community browser implementation by Hemanth HM (MIT), the [Pocket TTS ONNX export](https://huggingface.co/KevinAHM/pocket-tts-onnx) from KevinAHM, and [Kyutai Pocket TTS](https://github.com/kyutai-labs/pocket-tts). The upstream models have their own Hugging Face terms and restrictions, including **explicit lawful consent for voice cloning**, and do not inherit the website's software license. The distributed web frontend includes code from the original third-party implementation: retain attribution. The original Supertonic code is no longer used.
 
-```bash
-npm install
-npm run fetch:helper
-python -m pip install "huggingface_hub>=0.33,<2"
-python scripts/download_model.py
-npm run dev
-```
+**Do not use voices without permission or misrepresent generated audio as an authentic recording.**
 
-## Licenses and privacy
+## Troubleshooting
 
-- The model, presets, and weights are licensed separately under **OpenRAIL-M** (their license is bundled with the site). Respect the model usage conditions.
-- The original archived browser inference helper is under **MIT**.
-- Website-specific code is under **MIT**; see LICENSE.
-- Custom JSON and audio previews remain local to the browser. Never use a third party's voice without permission, and disclose AI-generated speech when appropriate.
-- The site uses a static build and has no upload server.
-
-Upstream code: https://github.com/supertone-oss-archive/supertonic
+- If models do not load, check developer tools Network/Console for Hugging Face or jsDelivr failures; the static GitHub Pages workflow cannot fix external model CDN restrictions.
+- Try Chrome desktop with sufficient memory for ONNX Runtime Web (WASM).
+- A first run can involve substantial model downloads before generation becomes available.
+- If speech stutters, a slower browser/CPU is generating below realtime speed. The ETA reflects the rate once chunks arrive. Playback uses a small 160 ms start buffer to prioritize low latency, not eliminate all underruns.
